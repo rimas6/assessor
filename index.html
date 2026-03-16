@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Assessor</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --primary: #1a6fff;
+  --success: #059669;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+  --bg: #0a0e14;
+  --card: #1a1f2e;
+  --text: #e8eaed;
+  --text-dim: #9ca3af;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* HEADER */
+.header {
+  background: rgba(26, 31, 46, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 1rem 2rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.logo {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.logo span { color: var(--primary); }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background: rgba(26, 111, 255, 0.1);
+  border: 1px solid rgba(26, 111, 255, 0.3);
+  border-radius: 20px;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+.status-pill.live {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--danger);
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* MAIN LAYOUT */
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* LANDING */
+.hero {
+  text-align: center;
+  padding: 4rem 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+.hero h1 {
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: 800;
+  margin-bottom: 1rem;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.hero h1 span { color: var(--primary); }
+.hero p {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 20px rgba(26, 111, 255, 0.3);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(26, 111, 255, 0.4);
+}
+
+/* PRACTICE SCREEN */
+.practice-grid {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+@media (max-width: 1024px) {
+  .practice-grid { grid-template-columns: 1fr; }
+}
+
+/* CAMERA PANEL */
+.cam-panel {
+  background: var(--card);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.cam-view {
+  position: relative;
+  aspect-ratio: 4/3;
+  background: #000;
+  overflow: hidden;
+}
+#videoEl {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+#poseCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+  pointer-events: none;
+}
+
+/* CAMERA STATES */
+.cam-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1f2e 0%, #0a0e14 100%);
+  padding: 2rem;
+  text-align: center;
+}
+.cam-overlay h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.cam-overlay p {
+  color: var(--text-dim);
+  margin-bottom: 2rem;
+}
+.cam-icon {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 1.5rem;
+  opacity: 0.5;
+}
+
+/* LIVE OVERLAYS */
+.timer {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(0,0,0,0.7);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.timer.warning { color: var(--warning); }
+.timer.danger { color: var(--danger); }
+
+.ghost-overlay {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: rgba(5, 150, 105, 0.1);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  display: none;
+}
+.ghost-overlay.active { display: block; }
+
+.scaffold-hint {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(26, 111, 255, 0.9);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  max-width: 80%;
+  text-align: center;
+  transition: opacity 0.3s;
+}
+
+/* METRICS SIDEBAR */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.metric-card {
+  background: var(--card);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.metric-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+.metric-value.good { color: var(--success); }
+.metric-value.warn { color: var(--warning); }
+.metric-value.bad { color: var(--danger); }
+.metric-sub {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.score-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.score-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.score-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.score-bar {
+  flex: 2;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.score-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.5s;
+}
+.score-val {
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.feedback-item {
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  animation: slideIn 0.3s;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.feedback-item.good {
+  background: rgba(5, 150, 105, 0.1);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  color: var(--success);
+}
+.feedback-item.warn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--warning);
+}
+.feedback-item.bad {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: var(--danger);
+}
+
+/* RESULTS */
+.results-wrap {
+  max-width: 900px;
+  margin: 2rem auto;
+  text-align: center;
+}
+.results-wrap h2 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+.score-ring {
+  width: 200px;
+  height: 200px;
+  margin: 2rem auto;
+  position: relative;
+}
+.score-ring svg {
+  transform: rotate(-90deg);
+}
+.ring-bg { fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 12; }
+.ring-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-dasharray: 565;
+  stroke-dashoffset: 565;
+  transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ring-score {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 2rem 0;
+}
+.breakdown-card {
+  background: var(--card);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  text-align: left;
+}
+.breakdown-card h4 {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+.breakdown-card .value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.tips {
+  background: var(--card);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  margin: 2rem 0;
+  text-align: left;
+}
+.tips h3 {
+  margin-bottom: 1rem;
+}
+.tips ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.tips li {
+  padding-left: 1.5rem;
+  position: relative;
+}
+.tips li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--primary);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  margin: 0.5rem;
+}
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.3);
+}
+
+.cam-footer {
+  padding: 1rem;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.btn-end {
+  background: var(--danger);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo"><span>AI</span> Assessor</div>
+  <div class="status-pill" id="statusPill">
+    <span class="status-dot"></span>
+    <span>READY</span>
+  </div>
+</header>
+
+<!-- LANDING SCREEN -->
+<div id="landing" class="screen active">
+  <div class="container">
+    <div class="hero">
+      <h1>Autonomous CPR <span>Assessment</span></h1>
+      <p>AI-powered clinical skills evaluation system. Real-time pose analysis, intelligent feedback, and comprehensive performance scoring.</p>
+      <button class="btn-primary" onclick="startPractice()">Begin Assessment</button>
+      <p style="margin-top:1rem; font-size:0.9rem; color:var(--text-dim);">
+        No installation • Webcam required • AIREA Competition 2026
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- PRACTICE SCREEN -->
+<div id="practice" class="screen">
+  <div class="container">
+    <div class="practice-grid">
+      <!-- Camera Panel -->
+      <div class="cam-panel">
+        <div class="cam-view">
+          <video id="videoEl" autoplay playsinline muted></video>
+          <canvas id="poseCanvas"></canvas>
+          
+          <!-- Camera Overlay (shows until camera active) -->
+          <div class="cam-overlay" id="camOverlay">
+            <svg class="cam-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+            </svg>
+            <h3>Camera Access Required</h3>
+            <p>Position yourself in front of the camera to begin assessment</p>
+            <button class="btn-primary" onclick="requestCamera()">Enable Camera</button>
+          </div>
+
+          <!-- Live Overlays -->
+          <div class="timer" id="timer">0:30</div>
+          <div class="ghost-overlay" id="ghostOverlay">👻 Ghost Overlay Active</div>
+          <div class="scaffold-hint" id="scaffoldHint" style="opacity:0;"></div>
+        </div>
+        
+        <div class="cam-footer">
+          <span id="poseStatus">⚪ Waiting for pose detection...</span>
+          <button class="btn-end" onclick="endSession()">End Session</button>
+        </div>
+      </div>
+
+      <!-- Sidebar Metrics -->
+      <div class="sidebar">
+        <div class="metric-card">
+          <div class="metric-label">Compression Rate</div>
+          <div class="metric-value" id="bpmValue">0</div>
+          <div class="metric-sub" id="bpmSub">Target: 100-120 BPM</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Compressions</div>
+          <div class="metric-value good" id="compCount">0</div>
+          <div class="metric-sub">Total compressions detected</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Live Scores</div>
+          <div class="score-bars">
+            <div class="score-item">
+              <span class="score-name">Hand Position</span>
+              <div class="score-bar"><div class="score-fill" id="sf-hand"></div></div>
+              <span class="score-val" id="sv-hand">0%</span>
+            </div>
+            <div class="score-item">
+              <span class="score-name">Arm Alignment</span>
+              <div class="score-bar"><div class="score-fill" id="sf-arm"></div></div>
+              <span class="score-val" id="sv-arm">0%</span>
+            </div>
+            <div class="score-item">
+              <span class="score-name">Consistency</span>
+              <div class="score-bar"><div class="score-fill" id="sf-cons"></div></div>
+              <span class="score-val" id="sv-cons">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Diagnostic Feedback</div>
+          <div class="feedback-list" id="feedbackList">
+            <div class="feedback-item warn">
+              <span>⚡</span>
+              <span>Enable camera to begin assessment</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS SCREEN -->
+<div id="results" class="screen">
+  <div class="container">
+    <div class="results-wrap">
+      <h2>Assessment Complete</h2>
+      <p style="color:var(--text-dim); margin-bottom:2rem;">Your CPR Competency Report</p>
+      
+      <div class="score-ring">
+        <svg width="200" height="200" viewBox="0 0 200 200">
+          <circle class="ring-bg" cx="100" cy="100" r="90"/>
+          <circle class="ring-fill" id="ringFill" cx="100" cy="100" r="90"/>
+        </svg>
+        <div class="ring-center">
+          <div class="ring-score" id="finalScore">0</div>
+          <div style="font-size:0.9rem; color:var(--text-dim);">/100</div>
+        </div>
+      </div>
+
+      <h3 id="gradeLabel" style="margin-bottom:0.5rem;">-</h3>
+      <p id="gradeDesc" style="color:var(--text-dim); margin-bottom:2rem;">-</p>
+
+      <div class="breakdown">
+        <div class="breakdown-card">
+          <h4>Hand Position (25%)</h4>
+          <div class="value good" id="bd-hand">-</div>
+          <p style="font-size:0.85rem; color:var(--text-dim);" id="bt-hand">-</p>
+        </div>
+        <div class="breakdown-card">
+          <h4>Compression Rate (35%)</h4>
+          <div class="value" id="bd-rate">-</div>
+          <p style="font-size:0.85rem; color:var(--text-dim);" id="bt-rate">-</p>
+        </div>
+        <div class="breakdown-card">
+          <h4>Arm Alignment (20%)</h4>
+          <div class="value" id="bd-arm">-</div>
+          <p style="font-size:0.85rem; color:var(--text-dim);" id="bt-arm">-</p>
+        </div>
+        <div class="breakdown-card">
+          <h4>Consistency (20%)</h4>
+          <div class="value" id="bd-cons">-</div>
+          <p style="font-size:0.85rem; color:var(--text-dim);" id="bt-cons">-</p>
+        </div>
+      </div>
+
+      <div class="tips">
+        <h3>Improvement Recommendations</h3>
+        <ul id="tipsList"></ul>
+      </div>
+
+      <div>
+        <button class="btn-primary" onclick="retrySession()">Practice Again</button>
+        <button class="btn-secondary" onclick="goHome()">Back to Home</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// State
+let pose = null, camera = null, stream = null;
+let sessionActive = false, sessionTime = 30, timerInterval = null;
+let compCount = 0, compTimes = [], compIntervals = [];
+let prevY = null, phase = 'up', lastComp = 0;
+let handFrames = 0, armFrames = 0, totalFrames = 0;
+let currentBPM = 0, skillLevel = 0;
+
+// Navigation
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function startPractice() { show('practice'); }
+function goHome() { cleanup(); show('landing'); resetState(); }
+function retrySession() { cleanup(); show('practice'); resetState(); }
+
+// Camera
+async function requestCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false });
+    const vid = document.getElementById('videoEl');
+    vid.srcObject = stream;
+    await vid.play();
+    document.getElementById('camOverlay').style.display = 'none';
+    updateStatus('live', 'LIVE SESSION');
+    await loadPose(vid);
+    startSession();
+  } catch (err) {
+    alert('Camera access denied. Please allow camera access and reload.');
+  }
+}
+
+async function loadPose(vid) {
+  if (typeof Pose === 'undefined') { startSimulation(); return; }
+  pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${f}` });
+  pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+  pose.onResults(onPose);
+  if (typeof Camera !== 'undefined') {
+    camera = new Camera(vid, {
+      onFrame: async () => { if (pose && sessionActive) await pose.send({ image: vid }); },
+      width: 1280, height: 720
+    });
+    camera.start();
+  } else {
+    startSimulation();
+  }
+}
+
+function onPose(results) {
+  if (!sessionActive) return;
+  const canvas = document.getElementById('poseCanvas');
+  const vid = document.getElementById('videoEl');
+  canvas.width = vid.videoWidth || 640;
+  canvas.height = vid.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!results.poseLandmarks) { setPoseDetected(false); return; }
+  setPoseDetected(true);
+  const lm = results.poseLandmarks;
+
+  if (typeof drawConnectors !== 'undefined') {
+    drawConnectors(ctx, lm, POSE_CONNECTIONS, { color: 'rgba(26,111,255,0.6)', lineWidth: 2 });
+    drawLandmarks(ctx, lm, { color: '#1a6fff', fillColor: '#fff', radius: 3 });
+  }
+
+  analyzePose(lm, canvas.width, canvas.height, ctx);
+  detectComp((lm[15].y + lm[16].y) / 2);
+  updateScores();
+  updateFeedback();
+}
+
+function analyzePose(lm, W, H, ctx) {
+  totalFrames++;
+  const ls = lm[11], rs = lm[12], le = lm[13], re = lm[14], lw = lm[15], rw = lm[16];
+  
+  // Hand position
+  const chestX = (ls.x + rs.x) / 2, chestY = (ls.y + rs.y) / 2 + 0.09;
+  const wX = (lw.x + rw.x) / 2, wY = (lw.y + rw.y) / 2;
+  const handOk = Math.abs(wX - chestX) < 0.14 && Math.abs(wY - chestY) < 0.13;
+  if (handOk) handFrames++;
+
+  // Arm angle
+  const ang = (s,e,w) => {
+    const v1x=s.x-e.x, v1y=s.y-e.y, v2x=w.x-e.x, v2y=w.y-e.y;
+    const d=v1x*v2x+v1y*v2y, m=Math.sqrt(v1x*v1x+v1y*v1y)*Math.sqrt(v2x*v2x+v2y*v2y);
+    return m===0?180:Math.acos(Math.min(1,Math.max(-1,d/m)))*180/Math.PI;
+  };
+  const armOk = ang(ls,le,lw) > 145 && ang(rs,re,rw) > 145;
+  if (armOk) armFrames++;
+
+  // Ghost Overlay (semi-transparent ideal pose)
+  if (skillLevel < 3) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.1, 0.4 - skillLevel * 0.1);
+    ctx.strokeStyle = '#059669';
+    ctx.lineWidth = 2;
+    const cx = W * 0.5, cy = H * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 60);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx - 30, cy + 40);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + 30, cy + 40);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Adaptive Scaffolding
+  const handAcc = totalFrames > 0 ? (handFrames / totalFrames) * 100 : 0;
+  if (handAcc > 75 && skillLevel < 5) {
+    skillLevel++;
+    showScaffold('Great hand position! Keep it centered.', 2000);
+  }
+}
+
+function detectComp(avgY) {
+  if (prevY === null) { prevY = avgY; return; }
+  const delta = avgY - prevY;
+  const now = Date.now();
+  if (phase === 'up' && delta > 0.009) phase = 'down';
+  else if (phase === 'down' && delta < -0.009) {
+    phase = 'up';
+    if (now - lastComp > 280) {
+      compCount++;
+      if (lastComp > 0) compIntervals.push(now - lastComp);
+      compTimes.push(now);
+      lastComp = now;
+      document.getElementById('compCount').textContent = compCount;
+      calcBPM();
+    }
+  }
+  prevY = avgY;
+}
+
+function calcBPM() {
+  const now = Date.now();
+  compTimes = compTimes.filter(t => now - t < 10000);
+  if (compTimes.length >= 2) {
+    const el = (compTimes[compTimes.length-1] - compTimes[0]) / 1000;
+    if (el > 0) currentBPM = Math.round((compTimes.length-1) / el * 60);
+  }
+  if (currentBPM > 0) {
+    const el = document.getElementById('bpmValue');
+    el.textContent = currentBPM;
+    el.className = 'metric-value ' + (currentBPM >= 100 && currentBPM <= 120 ? 'good' : currentBPM >= 80 && currentBPM <= 135 ? 'warn' : 'bad');
+    document.getElementById('bpmSub').textContent = 
+      currentBPM >= 100 && currentBPM <= 120 ? 'Optimal rhythm' :
+      currentBPM < 80 ? 'Too slow - increase speed' :
+      currentBPM < 100 ? 'Slightly slow' :
+      currentBPM <= 135 ? 'Slightly fast' : 'Too fast - slow down';
+  }
+}
+
+function updateScores() {
+  const hand = totalFrames > 0 ? Math.round((handFrames / totalFrames) * 100) : 0;
+  const arm = totalFrames > 0 ? Math.round((armFrames / totalFrames) * 100) : 0;
+  const rate = rateScore(currentBPM);
+  const cons = consScore();
+  setScore('hand', hand);
+  setScore('arm', arm);
+  setScore('cons', cons);
+}
+
+function setScore(id, pct) {
+  document.getElementById('sf-' + id).style.width = pct + '%';
+  document.getElementById('sv-' + id).textContent = pct + '%';
+}
+
+function rateScore(bpm) {
+  if (bpm === 0) return 0;
+  if (bpm >= 100 && bpm <= 120) return 100;
+  if (bpm >= 90 && bpm < 100) return 60 + (bpm-90)*4;
+  if (bpm > 120 && bpm <= 130) return 60 + (130-bpm)*4;
+  return Math.max(0, 10);
+}
+
+function consScore() {
+  if (compIntervals.length < 3) return 0;
+  const avg = compIntervals.reduce((a,b)=>a+b,0)/compIntervals.length;
+  const variance = compIntervals.reduce((a,b)=>a+(b-avg)**2,0)/compIntervals.length;
+  return Math.max(0, Math.min(100, Math.round((1 - Math.sqrt(variance)/avg) * 100)));
+}
+
+let lastFb = 0;
+function updateFeedback() {
+  if (Date.now() - lastFb < 1500) return;
+  lastFb = Date.now();
+  const msgs = [];
+  const bpm = currentBPM;
+  const handAcc = totalFrames > 0 ? (handFrames / totalFrames) * 100 : 0;
+  const armAcc = totalFrames > 0 ? (armFrames / totalFrames) * 100 : 0;
+
+  if (bpm >= 100 && bpm <= 120) msgs.push({ c:'good', t:`✓ Compression rate: ${bpm} BPM (optimal range for cardiac output)` });
+  else if (bpm < 80) msgs.push({ c:'bad', t:`Current rate ${bpm} BPM insufficient. Target 100-120 BPM to maintain blood flow to vital organs.` });
+  else if (bpm < 100) msgs.push({ c:'warn', t:`Rate ${bpm} BPM slightly below optimal. Increase to 100-120 BPM for maximum effectiveness.` });
+  else if (bpm <= 135) msgs.push({ c:'warn', t:`Rate ${bpm} BPM slightly elevated. Reduce to 100-120 BPM for proper chest recoil.` });
+  else msgs.push({ c:'bad', t:`Rate ${bpm} BPM too high. Excessive speed reduces compression depth and effectiveness.` });
+
+  if (handAcc > 70) msgs.push({ c:'good', t:'✓ Hand positioning correct - centered over sternum' });
+  else msgs.push({ c:'warn', t:'Adjust hands to center of chest. Improper placement may cause rib fractures.' });
+
+  if (armAcc > 70) msgs.push({ c:'good', t:'✓ Arms locked straight - using body weight effectively' });
+  else msgs.push({ c:'bad', t:'Keep elbows straight. Bent arms reduce force transmission by up to 60%.' });
+
+  document.getElementById('feedbackList').innerHTML = msgs.map(m => 
+    `<div class="feedback-item ${m.c}"><span>${m.c==='good'?'✓':m.c==='warn'?'⚠':'✗'}</span><span>${m.t}</span></div>`
+  ).join('');
+}
+
+function showScaffold(msg, duration) {
+  const el = document.getElementById('scaffoldHint');
+  el.textContent = msg;
+  el.style.opacity = Math.max(0.3, 1 - skillLevel * 0.15);
+  setTimeout(() => { el.style.opacity = 0; }, duration);
+}
+
+function setPoseDetected(yes) {
+  document.getElementById('poseStatus').textContent = yes ? '🟢 Pose detected' : '🟡 Position yourself in frame';
+  document.getElementById('ghostOverlay').classList.toggle('active', yes && skillLevel < 3);
+}
+
+function updateStatus(state, text) {
+  const pill = document.getElementById('statusPill');
+  pill.className = 'status-pill' + (state === 'live' ? ' live' : '');
+  pill.querySelector('span:last-child').textContent = text;
+}
+
+function startSession() {
+  sessionActive = true;
+  sessionTime = 30;
+  updateTimer();
+  timerInterval = setInterval(() => {
+    sessionTime--;
+    updateTimer();
+    if (sessionTime <= 0) { clearInterval(timerInterval); sessionActive = false; setTimeout(showResults, 500); }
+  }, 1000);
+}
+
+function updateTimer() {
+  const el = document.getElementById('timer');
+  el.textContent = '0:' + String(sessionTime).padStart(2, '0');
+  el.className = 'timer' + (sessionTime <= 5 ? ' danger' : sessionTime <= 10 ? ' warning' : '');
+}
+
+function endSession() {
+  if (sessionActive) { clearInterval(timerInterval); sessionActive = false; showResults(); }
+  else { cleanup(); goHome(); }
+}
+
+function showResults() {
+  cleanup();
+  const hand = totalFrames > 0 ? Math.round((handFrames / totalFrames) * 100) : 0;
+  const arm = totalFrames > 0 ? Math.round((armFrames / totalFrames) * 100) : 0;
+  const rate = rateScore(currentBPM);
+  const cons = consScore();
+  const total = Math.round(hand * 0.25 + rate * 0.35 + arm * 0.20 + cons * 0.20);
+
+  // Ring animation
+  const circ = 2 * Math.PI * 90;
+  const fill = document.getElementById('ringFill');
+  setTimeout(() => {
+    fill.style.strokeDashoffset = circ - (total / 100) * circ;
+  }, 300);
+
+  // Score count-up
+  const scoreEl = document.getElementById('finalScore');
+  let n = 0;
+  const iv = setInterval(() => { n = Math.min(total, n + 2); scoreEl.textContent = n; if (n >= total) clearInterval(iv); }, 20);
+
+  // Grade
+  const grades = [
+    [90,'Outstanding','Exceptional technique meeting all AHA CPR guidelines.'],
+    [80,'Excellent','Strong performance with minor areas for refinement.'],
+    [70,'Proficient','Competent technique. Review flagged areas below.'],
+    [60,'Developing','Additional practice needed. Review fundamentals.'],
+    [0,'Needs Improvement','Significant gaps detected. Review CPR protocol and practice.']
+  ];
+  const [,grade,desc] = grades.find(([m]) => total >= m);
+  document.getElementById('gradeLabel').textContent = grade;
+  document.getElementById('gradeDesc').textContent = desc;
+
+  // Breakdown
+  document.getElementById('bd-hand').textContent = hand;
+  document.getElementById('bt-hand').textContent = hand >= 70 ? 'Hands well-centered on sternum' : 'Hand positioning needs adjustment';
+  document.getElementById('bd-rate').textContent = rate;
+  document.getElementById('bt-rate').textContent = compCount < 3 ? 'Insufficient compressions' : rate >= 70 ? `${currentBPM} BPM within optimal range` : `${currentBPM} BPM outside target window`;
+  document.getElementById('bd-arm').textContent = arm;
+  document.getElementById('bt-arm').textContent = arm >= 70 ? 'Arms remained straight' : 'Elbow bending detected';
+  document.getElementById('bd-cons').textContent = cons;
+  document.getElementById('bt-cons').textContent = cons >= 70 ? 'Consistent rhythm maintained' : compCount < 5 ? 'Too few compressions' : 'High interval variability';
+
+  // Tips
+  const tips = [];
+  if (rate < 70) tips.push('Practice compression rate to "Stayin\' Alive" by Bee Gees (~103 BPM) to internalize correct tempo.');
+  if (hand < 70) tips.push('Position heel of hand on lower half of sternum (center of chest between nipples). Interlace fingers and lift off ribs.');
+  if (arm < 70) tips.push('Lock elbows completely straight. Position shoulders directly over hands and use body weight, not arm strength.');
+  if (cons < 70) tips.push('Count compressions aloud in rhythm: "1-and-2-and-3..." to maintain even intervals.');
+  tips.push(`AHA guidelines require compression depth ≥5cm at 100-120 BPM with full chest recoil. Session total: ${compCount} compressions.`);
+  document.getElementById('tipsList').innerHTML = tips.map(t => `<li>${t}</li>`).join('');
+
+  show('results');
+}
+
+function cleanup() {
+  sessionActive = false;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  if (camera) { try { camera.stop(); } catch(e){} camera = null; }
+  if (pose) { try { pose.close(); } catch(e){} pose = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  const vid = document.getElementById('videoEl');
+  if (vid) vid.srcObject = null;
+}
+
+function resetState() {
+  compCount = 0; compTimes = []; compIntervals = [];
+  prevY = null; phase = 'up'; lastComp = 0;
+  handFrames = 0; armFrames = 0; totalFrames = 0;
+  currentBPM = 0; skillLevel = 0;
+  document.getElementById('compCount').textContent = '0';
+  document.getElementById('bpmValue').textContent = '0';
+  ['hand','arm','cons'].forEach(id => {
+    document.getElementById('sf-' + id).style.width = '0%';
+    document.getElementById('sv-' + id).textContent = '0%';
+  });
+  document.getElementById('feedbackList').innerHTML = '<div class="feedback-item warn"><span>⚡</span><span>Enable camera to begin assessment</span></div>';
+  document.getElementById('camOverlay').style.display = 'flex';
+  updateStatus('', 'READY');
+}
+
+// Simulation fallback
+let simIv = null;
+function startSimulation() {
+  setPoseDetected(true);
+  let ph = 0;
+  simIv = setInterval(() => {
+    if (!sessionActive) return;
+    ph += 0.14;
+    const now = Date.now();
+    const targetBPM = 110 + Math.sin(now / 8000) * 8;
+    const interval = 60000 / targetBPM;
+    if (!lastComp || (now - lastComp) >= interval * 0.93) {
+      detectComp(0.55 + Math.sin(ph) * 0.025);
+    }
+    totalFrames++;
+    if (Math.random() > 0.3) handFrames++;
+    if (Math.random() > 0.25) armFrames++;
+    updateScores();
+    updateFeedback();
+  }, 85);
+}
+</script>
+
+</body>
+</html>
